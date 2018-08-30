@@ -1,69 +1,45 @@
-#!/usr/bin/env python
+#!/bin/python3
+# Largely copied from http://www.mathewinkson.com/2015/03/delete-old-tweets-selectively-using-python-and-tweepy
+# However, Mathew's script cannot delete tweets older than something like a year (these tweets are not available from the twitter API)
+# This script is a complement on first use, to delete old tweets. It uses your twitter archive to find tweets' ids to delete
+# How to use it :
+#     - download and extract your twitter archive (tweet.js will contain all your tweets with dates and ids)
+#     - put this script in the extracted directory
+#     - complete the secrets to access twitter's API on your behalf and, possibly, modify days_to_keep
+#     - delete the few junk characters at the beginning of tweet.js, until the first '['   (it crashed my json parser)
+#     - review the script !!!! It has not been thoroughly tested, it may have some unexpected behaviors...
+#     - run this script
+#     - forget this script, you can now use Mathew's script for your future deletions
+#
+#  License : Unlicense http://unlicense.org/
 
-import argparse
-from backports import csv
-import sys
-import time
-import os
-import twitter
-import io
-from dateutil.parser import parse
+import tweepy
 
-__author__ = "Koen Rouwhorst"
-__version__ = "0.1.1"
+import json
+from datetime import datetime, timedelta, timezone
 
-def delete(api, date, r):
-    with io.open("tweets.csv", encoding='utf-8') as file:
-        count = 0
+consumer_key = ""
+consumer_secret = ""
+access_token = ""
+access_token_secret = ""
+days_to_keep = 30
 
-        for row in csv.DictReader(file):
-            tweet_id = int(row["tweet_id"])
-            tweet_date = parse(row["timestamp"], ignoretz=True).date()
+auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
+auth.set_access_token(access_token, access_token_secret)
+api = tweepy.API(auth)
 
-            if date != "" and tweet_date >= parse(date).date():
-                continue
+cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_to_keep)
 
-            if (r == "retweet" and row["retweeted_status_id"] == "" or
-                    r == "reply" and row["in_reply_to_status_id"] == ""):
-                continue
+print(cutoff_date)
 
-            try:
-                print("Deleting tweet #{0} ({1})".format(tweet_id, tweet_date))
+fp = open("tweet.js","r")
+myjson = json.load(fp)
 
-                api.DestroyStatus(tweet_id)
-                count += 1
-                time.sleep(0.5)
-
-            except twitter.TwitterError as err:
-                print("Exception: %s\n" % err.message)
-
-    print("Number of deleted tweets: %s\n" % count)
-
-def error(msg, exit_code=1):
-    sys.stderr.write("Error: %s\n" % msg)
-    exit(exit_code)
-
-def main():
-    parser = argparse.ArgumentParser(description="Delete old tweets.")
-    parser.add_argument("-d", dest="date", required=True,
-                        help="Delete tweets until this date")
-    parser.add_argument("-r", dest="restrict", choices=["reply", "retweet"],
-                        help="Restrict to either replies or retweets")
-
-    args = parser.parse_args()
-
-    if not ("TWITTER_CONSUMER_KEY" in os.environ and
-                "TWITTER_CONSUMER_SECRET" in os.environ and
-                "TWITTER_ACCESS_TOKEN" in os.environ and
-                "TWITTER_ACCESS_TOKEN_SECRET" in os.environ):
-        error("No consumer key/secret and/or access token/secret set.")
-
-    api = twitter.Api(consumer_key=os.environ['TWITTER_CONSUMER_KEY'],
-                      consumer_secret=os.environ['TWITTER_CONSUMER_SECRET'],
-                      access_token_key=os.environ['TWITTER_ACCESS_TOKEN'],
-                      access_token_secret=os.environ['TWITTER_ACCESS_TOKEN_SECRET'])
-
-    delete(api, args.date, args.restrict)
-
-if __name__ == "__main__":
-    main()
+for tweet in myjson:
+    d = datetime.strptime(tweet['created_at'], "%a %b %d %H:%M:%S %z %Y")
+    if d < cutoff_date:
+        print(tweet['created_at'] + " " + tweet['id_str'])
+        try:
+            api.destroy_status(tweet['id_str'])
+        except:
+            pass
